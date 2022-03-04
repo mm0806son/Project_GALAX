@@ -1,4 +1,4 @@
-#define GALAX_MODEL_CPU_FAST 1
+
 #ifdef GALAX_MODEL_CPU_FAST
 
 #include <cmath>
@@ -16,18 +16,11 @@ Model_CPU_fast ::Model_CPU_fast(const Initstate &initstate, Particles &particles
 {
 }
 
-void Model_CPU_fast ::step()
-{
-    std::fill(accelerationsx.begin(), accelerationsx.end(), 0);
-    std::fill(accelerationsy.begin(), accelerationsy.end(), 0);
-    std::fill(accelerationsz.begin(), accelerationsz.end(), 0);
-
-    std::vector<double> compute_signal(size_t num_samples, double A, double fm, double fp, double tmin, double dt)
+void forward(int n_particles, const Initstate &initstate, Particles &particles, std::vector<float> &velocitiesx, std::vector<float> &velocitiesy, std::vector<float> &velocitiesz, std::vector<float> &accelerationsx, std::vector<float> &accelerationsy, std::vector<float> &accelerationsz)
     {
-        std::vector<double> signal(num_samples, 100. * A);
 
         // ! Use a parfor to compute the signal
-        omp_set_num_threads(4);
+        //omp_set_num_threads(4);
 #pragma omp parallel for
         for (int i = 0; i < n_particles; i++)
         {
@@ -82,6 +75,16 @@ void Model_CPU_fast ::step()
 
         //         ...
         //     }
+
     }
 
+void Model_CPU_fast ::step()
+{
+    std::fill(accelerationsx.begin(), accelerationsx.end(), 0);
+    std::fill(accelerationsy.begin(), accelerationsy.end(), 0);
+    std::fill(accelerationsz.begin(), accelerationsz.end(), 0);
+
+    forward(n_particles, initstate, particles, velocitiesx, velocitiesy, velocitiesz, accelerationsx, accelerationsy, accelerationsz);
+   
+}
 #endif // GALAX_MODEL_CPU_FAST
