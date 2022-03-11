@@ -1,4 +1,4 @@
-
+#define GALAX_MODEL_CPU_FAST 1
 #ifdef GALAX_MODEL_CPU_FAST
 
 #include <cmath>
@@ -15,16 +15,18 @@ Model_CPU_fast ::Model_CPU_fast(const Initstate &initstate, Particles &particles
     : Model_CPU(initstate, particles)
 {
 }
-/*
+
 void forward(int n_particles, const Initstate &initstate, Particles &particles, std::vector<float> &velocitiesx, std::vector<float> &velocitiesy, std::vector<float> &velocitiesz, std::vector<float> &accelerationsx, std::vector<float> &accelerationsy, std::vector<float> &accelerationsz)
 {
-
+// 
     // ! Use Parfor
     // omp_set_num_threads(4);
 #pragma omp parallel for
     for (int i = 0; i < n_particles; i++)
+    // for (int j = 0; j < n_particles; j++)
     {
         for (int j = 0; j < n_particles; j++)
+        // for (int i = 0; i < n_particles; i++)
         {
             if (i != j)
             {
@@ -33,15 +35,15 @@ void forward(int n_particles, const Initstate &initstate, Particles &particles, 
                 const float diffz = particles.z[j] - particles.z[i];
 
                 float dij = diffx * diffx + diffy * diffy + diffz * diffz;
-
-                if (dij < 1.0)
+                // G = 10
+                if (dij < 1.0) // two bodies are too close
                 {
-                    dij = 10.0;
+                    dij = 10.0; // dij = G
                 }
                 else
                 {
                     dij = std::sqrt(dij);
-                    dij = 10.0 / (dij * dij * dij);
+                    dij = 10.0 / (dij * dij * dij); // dij=G/d^3
                 }
 
                 accelerationsx[i] += diffx * dij * initstate.masses[j];
@@ -50,46 +52,8 @@ void forward(int n_particles, const Initstate &initstate, Particles &particles, 
             }
         }
     }
-
-// ? logn
-#pragma omp parallel for
-    for (int i = 0; i < n_particles; i++)
-    {
-        for (int j = i + 1; j < n_particles; j++)
-        {
-
-            const float diffx = particles.x[j] - particles.x[i];
-            const float diffy = particles.y[j] - particles.y[i];
-            const float diffz = particles.z[j] - particles.z[i];
-
-            float dij = diffx * diffx + diffy * diffy + diffz * diffz;
-
-            if (dij < 1.0)
-            {
-                dij = 10.0;
-            }
-            else
-            {
-                dij = std::sqrt(dij);
-                dij = 10.0 / (dij * dij * dij);
-            }
-
-            // ? would be faster ?
-            // ? dij = min(10.0,10.0 / (dij * dij * dij))
-            float temp = dij * initstate.masses[j];
-            accelerationsx[i] += diffx * temp;
-            accelerationsy[i] += diffy * temp;
-            accelerationsz[i] += diffz * temp;
-
-            temp = dij * initstate.masses[i];
-            accelerationsx[j] -= diffx * temp;
-            accelerationsy[j] -= diffy * temp;
-            accelerationsz[j] -= diffz * temp;
-        }
-    }
-
     // ? more parallelisme ?
-    // ? #pragma omp parallel for
+#pragma omp parallel for
     for (int i = 0; i < n_particles; i++)
     {
         velocitiesx[i] += accelerationsx[i] * 2.0f;
@@ -116,7 +80,7 @@ void forward(int n_particles, const Initstate &initstate, Particles &particles, 
     //     }
 }
 
-*/
+/*
 
 void forward(int n_particles, const Initstate &initstate, Particles &particles, std::vector<float> &velocitiesx, std::vector<float> &velocitiesy, std::vector<float> &velocitiesz, std::vector<float> &accelerationsx, std::vector<float> &accelerationsy, std::vector<float> &accelerationsz)
 {
@@ -184,8 +148,9 @@ void forward(int n_particles, const Initstate &initstate, Particles &particles, 
             particles.z[i] += velocitiesz[i] * 0.1f;
         }
     }
+    
 }
-
+*/
 void Model_CPU_fast ::step()
 {
     std::fill(accelerationsx.begin(), accelerationsx.end(), 0);
