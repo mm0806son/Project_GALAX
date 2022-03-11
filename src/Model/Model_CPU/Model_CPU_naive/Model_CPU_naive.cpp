@@ -1,15 +1,14 @@
 #include <cmath>
+#include <iostream>
 
 #include "Model_CPU_naive.hpp"
 
-Model_CPU_naive
-::Model_CPU_naive(const Initstate& initstate, Particles& particles)
-: Model_CPU(initstate, particles)
+Model_CPU_naive ::Model_CPU_naive(const Initstate &initstate, Particles &particles)
+	: Model_CPU(initstate, particles)
 {
 }
 
-void Model_CPU_naive
-::step()
+void Model_CPU_naive ::step()
 {
 	std::fill(accelerationsx.begin(), accelerationsx.end(), 0);
 	std::fill(accelerationsy.begin(), accelerationsy.end(), 0);
@@ -19,11 +18,23 @@ void Model_CPU_naive
 	{
 		for (int j = 0; j < n_particles; j++)
 		{
-			if(i != j)
+			if (i != j)
 			{
+
+				// std::cout << "i=" << i << std::endl;
+				// std::cout << "j=" << j << std::endl;
+
 				const float diffx = particles.x[j] - particles.x[i];
 				const float diffy = particles.y[j] - particles.y[i];
 				const float diffz = particles.z[j] - particles.z[i];
+
+				// std::cout << "NAIVE" << std::endl;
+				// std::cout << "rposx_i " << particles.x[i] << std::endl;
+				// std::cout << "rposy_i " << particles.y[i] << std::endl;
+				// std::cout << "rposz_i " << particles.z[i] << std::endl;
+				// std::cout << "rposx_j " << particles.x[j] << std::endl;
+				// std::cout << "rposy_j " << particles.y[j] << std::endl;
+				// std::cout << "rposz_j " << particles.z[j] << std::endl;
 
 				float dij = diffx * diffx + diffy * diffy + diffz * diffz;
 
@@ -37,6 +48,7 @@ void Model_CPU_naive
 					dij = 10.0 / (dij * dij * dij);
 				}
 
+				// std::cout << "dij" << dij << std::endl;
 				accelerationsx[i] += diffx * dij * initstate.masses[j];
 				accelerationsy[i] += diffy * dij * initstate.masses[j];
 				accelerationsz[i] += diffz * dij * initstate.masses[j];
@@ -49,8 +61,8 @@ void Model_CPU_naive
 		velocitiesx[i] += accelerationsx[i] * 2.0f;
 		velocitiesy[i] += accelerationsy[i] * 2.0f;
 		velocitiesz[i] += accelerationsz[i] * 2.0f;
-		particles.x[i] += velocitiesx   [i] * 0.1f;
-		particles.y[i] += velocitiesy   [i] * 0.1f;
-		particles.z[i] += velocitiesz   [i] * 0.1f;
+		particles.x[i] += velocitiesx[i] * 0.1f;
+		particles.y[i] += velocitiesy[i] * 0.1f;
+		particles.z[i] += velocitiesz[i] * 0.1f;
 	}
 }
