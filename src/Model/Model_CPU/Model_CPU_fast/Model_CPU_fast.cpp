@@ -1,4 +1,4 @@
-#define GALAX_MODEL_CPU_FAST 1
+// #define GALAX_MODEL_CPU_FAST 1
 #ifdef GALAX_MODEL_CPU_FAST
 
 #include <cmath>
@@ -140,25 +140,20 @@ void forward(int n_particles, const Initstate &initstate, Particles &particles, 
                 //     dij = 10.0 / (dij * dij * dij);
                 // }
 
-                // dij = xs::rsqrt(dij);
-                dij = 1.0;
-                dij = xs::fmin(b, 10.0 * dij * dij * dij);
+                b_type c = xs::rsqrt(dij);
+                /// dij = 1.0;
+                dij = xs::fmin(b, 10.0 * c * c * c);
                 // std::cout << "dij" << dij << std::endl;
 
                 raccx_i = raccx_i + diffx * dij * initstate.masses[j];
                 raccy_i = raccy_i + diffy * dij * initstate.masses[j];
                 raccz_i = raccz_i + diffz * dij * initstate.masses[j];
-
-                
             }
-            
         }
 
-        
-
         raccx_i.store_unaligned(&accelerationsx[i]);
-                raccy_i.store_unaligned(&accelerationsy[i]);
-                raccz_i.store_unaligned(&accelerationsz[i]);
+        raccy_i.store_unaligned(&accelerationsy[i]);
+        raccz_i.store_unaligned(&accelerationsz[i]);
 
         //         rvelx_i += raccx_i * 2.0f;
         //         rvely_i += raccy_i * 2.0f;
