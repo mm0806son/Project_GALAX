@@ -1,0 +1,1 @@
+OMP_NUM_THREADS=4 ./build/bin/galax -c CPU_FAST --display NO -n 10000 

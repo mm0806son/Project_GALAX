@@ -68,7 +68,7 @@ void forward(int n_particles, const Initstate &initstate, Particles &particles, 
 }
 
 */
-
+// /*
 void forward(int n_particles, const Initstate &initstate, Particles &particles, std::vector<float> &velocitiesx, std::vector<float> &velocitiesy, std::vector<float> &velocitiesz, std::vector<float> &accelerationsx, std::vector<float> &accelerationsy, std::vector<float> &accelerationsz)
 {
 
@@ -89,7 +89,7 @@ void forward(int n_particles, const Initstate &initstate, Particles &particles, 
         b_type rvely_i = b_type::load_unaligned(&velocitiesy[i]);
         b_type rvelz_i = b_type::load_unaligned(&velocitiesz[i]);
 
-        for (int j = 0; j < n_particles; j += 1)
+        for (int j = 0; j < n_particles; j += inc)
         {
             if (i != j)
             {
@@ -183,6 +183,7 @@ void forward(int n_particles, const Initstate &initstate, Particles &particles, 
         particles.z[i] += velocitiesz[i] * 0.1f;
     }
 }
+// */
 
 void Model_CPU_fast ::step()
 {
