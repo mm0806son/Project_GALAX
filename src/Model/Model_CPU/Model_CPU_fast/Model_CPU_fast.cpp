@@ -12,6 +12,20 @@
 
 namespace xs = xsimd;
 using b_type = xs::batch<float, xs::avx2>;
+using b_bool = xs::batch_bool<b_type>;
+
+b_type threshold = 0.0001;
+b_type b_zero = 0.0;
+b_type b = 10.0;
+// b_type rposx_j;
+// b_type rposy_j;
+// b_type rposz_j;
+// b_type raccx_j;
+// b_type raccy_j;
+// b_type raccz_j;
+// b_type rvelx_j;
+// b_type rvely_j;
+// b_type rvelz_j;
 
 Model_CPU_fast ::Model_CPU_fast(const Initstate &initstate, Particles &particles)
     : Model_CPU(initstate, particles)
@@ -31,7 +45,7 @@ void forward(int n_particles, const Initstate &initstate, Particles &particles, 
     for (int i = 0; i < n_particles; i++)
     // for (int j = 0; j < n_particles; j++)
     {
-        for (int j = 0; j < n_particles; j++)
+        for (int j = i+1; j < n_particles; j++)
         // for (int i = 0; i < n_particles; i++)
         {
             if (i != j)
@@ -79,7 +93,7 @@ void forward(int n_particles, const Initstate &initstate, Particles &particles, 
 
     std::size_t inc = b_type::size;
 #pragma omp parallel for
-    for (int i = 0; i < n_particles; i += inc)
+    for (int i = 0; i < n_particles -inc+1; i += inc)
     {
         // load registers body i
         b_type rposx_i = b_type::load_unaligned(&particles.x[i]); // ? const
@@ -99,16 +113,20 @@ void forward(int n_particles, const Initstate &initstate, Particles &particles, 
                 // std::cout << "i" << i << std::endl;
                 // std::cout << "j" << j << std::endl;
 
-                // load registers body i
-                const b_type rposx_j = b_type::load_unaligned(&particles.x[j]); // ? const
-                const b_type rposy_j = b_type::load_unaligned(&particles.y[j]);
-                const b_type rposz_j = b_type::load_unaligned(&particles.z[j]);
-                const b_type raccx_j = b_type::load_unaligned(&accelerationsx[j]);
-                const b_type raccy_j = b_type::load_unaligned(&accelerationsy[j]);
-                const b_type raccz_j = b_type::load_unaligned(&accelerationsz[j]);
-                const b_type rvelx_j = b_type::load_unaligned(&velocitiesx[j]);
-                const b_type rvely_j = b_type::load_unaligned(&velocitiesy[j]);
-                const b_type rvelz_j = b_type::load_unaligned(&velocitiesz[j]);
+                // load registers body j
+                b_type rposx_j = b_type::load_unaligned(&particles.x[j]);
+                b_type rposy_j = b_type::load_unaligned(&particles.y[j]);
+                b_type rposz_j = b_type::load_unaligned(&particles.z[j]);
+                b_type raccx_j = b_type::load_unaligned(&accelerationsx[j]);
+                b_type raccy_j = b_type::load_unaligned(&accelerationsy[j]);
+                b_type raccz_j = b_type::load_unaligned(&accelerationsz[j]);
+                b_type rvelx_j = b_type::load_unaligned(&velocitiesx[j]);
+                b_type rvely_j = b_type::load_unaligned(&velocitiesy[j]);
+                b_type rvelz_j = b_type::load_unaligned(&velocitiesz[j]);
+
+                // b_type threshold = 0.0001;
+                // b_type b_zero = 0.0;
+                // b_type b = 10.0;
 
                 // std::cout << "rposx_i" << rposx_i << std::endl;
                 // std::cout << "rposy_i" << rposy_i << std::endl;
@@ -128,35 +146,57 @@ void forward(int n_particles, const Initstate &initstate, Particles &particles, 
 
                 b_type dij = diffx * diffx + diffy * diffy + diffz * diffz;
 
-                // b_type a = 1.0;
-                b_type b = 10.0;
+                
                 // dij = xs::rsqrt(dij); // rsqrt=1/sqrt
-                // dij = xs::select(xs::gt(a, dij), b, 10.0 * dij * dij * dij);
+                // dij = xs::select(xs::gt(b, dij), b, 10.0 * dij * dij * dij);
 
-                // if (xs::gt(a,dij))
-                // {
-                //     dij = 10.0;
-                // }
-                // else
-                // {
-                //     dij = xs::sqrt(dij);
-                //     dij = 10.0 / (dij * dij * dij);
-                // }
-
-                b_type c = xs::rsqrt(dij);
+                b_type c = xs::rsqrt(dij); // rsqrt=1/sqrt
                 /// dij = 1.0;
                 dij = xs::fmin(b, 10.0 * c * c * c);
                 // std::cout << "dij" << dij << std::endl;
+                
 
-                raccx_i = raccx_i + diffx * dij * initstate.masses[j];
-                raccy_i = raccy_i + diffy * dij * initstate.masses[j];
-                raccz_i = raccz_i + diffz * dij * initstate.masses[j];
+
+
+
+                // b_type not_zero = bitwise_and(xs::gt(rposx_i, 1e-4),xs::gt(rposx_i, 1e-4));
+                // b_bool not_zero = xs::bitwise_and(xs::gt(b, a),xs::gt(a, b));
+
+           
+
+
+                auto not_zero =xs::bitwise_and(xs::bitwise_and(xs::gt(xs::abs(rposx_j), threshold),xs::gt(xs::abs(rposy_j), threshold)),xs::gt(xs::abs(rposz_j), threshold));
+
+                dij = xs::select(not_zero, dij, b_zero);
+                b_type raccx_i_j = diffx * dij;
+                b_type raccy_i_j = diffy * dij;
+                b_type raccz_i_j = diffz * dij;
+                // std::cout << "raccx_i_j" << raccx_i_j << std::endl;
+                // std::cout << "raccy_i_j" << raccy_i_j << std::endl;
+                // std::cout << "raccz_i_j" << raccz_i_j << std::endl;
+
+                raccx_i = raccx_i + raccx_i_j * initstate.masses[j];
+                raccy_i = raccy_i + raccy_i_j * initstate.masses[j];
+                raccz_i = raccz_i + raccz_i_j * initstate.masses[j];
+
+                // raccx_j = raccx_j - raccx_i_j * initstate.masses[i];
+                // raccy_j = raccy_j - raccy_i_j * initstate.masses[i];
+                // raccz_j = raccz_j - raccz_i_j * initstate.masses[i];
+
+                
+                
             }
         }
 
         raccx_i.store_unaligned(&accelerationsx[i]);
         raccy_i.store_unaligned(&accelerationsy[i]);
         raccz_i.store_unaligned(&accelerationsz[i]);
+
+        // raccx_j.store_unaligned(&accelerationsx[j]);
+        // raccy_j.store_unaligned(&accelerationsy[j]);
+        // raccz_j.store_unaligned(&accelerationsz[j]);
+
+        
 
         //         rvelx_i += raccx_i * 2.0f;
         //         rvely_i += raccy_i * 2.0f;
