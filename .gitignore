@@ -10,3 +10,7 @@ doc/latex/*
 !bin/DroidSans.ttf
 
 build/
+
+*.docx
+
+*.pptx
