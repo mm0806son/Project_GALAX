@@ -1,3 +1,10 @@
+/*
+ * @Date: 2024-04-07 14:29:10
+ * @Author: Zijie Ning zijie.ning@kuleuven.be
+ * @LastEditors: Zijie Ning zijie.ning@kuleuven.be
+ * @LastEditTime: 2024-04-07 18:43:43
+ * @FilePath: /Project_GALAX/src/Model/Model_GPU/Model_GPU.hpp
+ */
 #ifdef GALAX_MODEL_GPU
 
 #ifndef MODEL_GPU_HPP_
@@ -5,28 +12,26 @@
 
 #include "../Model.hpp"
 
-#include <cuda_runtime.h>
 #include "kernel.cuh"
+#include "utils.hpp"
+#include <array>
 
 class Model_GPU : public Model
 {
 private:
+    // CPU-side memory
+    std::vector<float4> host_position_mass;
 
-	std::vector<float3> positionsf3    ;
-	std::vector<float3> velocitiesf3   ;
-	std::vector<float3> accelerationsf3;
-
-	float3* positionsGPU;
-	float3* velocitiesGPU;
-	float3* accelerationsGPU;
-	float*  massesGPU;
+    // GPU-side memory
+    CudaBuffer<float4> dev_position_mass;
+    CudaBuffer<float4> dev_velocity;
+    CudaBuffer<float4> dev_acceleration;
 
 public:
 	Model_GPU(const Initstate& initstate, Particles& particles);
 
-	virtual ~Model_GPU();
-
 	virtual void step();
+    virtual void debug_vectors();
 };
 #endif // MODEL_GPU_HPP_
 
