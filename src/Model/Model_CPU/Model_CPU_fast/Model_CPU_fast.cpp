@@ -1,3 +1,10 @@
+/*
+ * @Date: 2024-04-07 14:29:10
+ * @Author: Zijie Ning zijie.ning@kuleuven.be
+ * @LastEditors: Zijie Ning zijie.ning@kuleuven.be
+ * @LastEditTime: 2024-04-08 12:43:18
+ * @FilePath: /Project_GALAX/src/Model/Model_CPU/Model_CPU_fast/Model_CPU_fast.cpp
+ */
 #define GALAX_MODEL_CPU_FAST 1
 #ifdef GALAX_MODEL_CPU_FAST
 
@@ -5,27 +12,12 @@
 
 #include "Model_CPU_fast.hpp"
 
-#include <xsimd/xsimd.hpp>
-#include <omp.h>
 // #include <typeinfo>
 #include <iostream>
+#include <CL/cl.h>
+#include <stdio.h>
+#include <stdlib.h>
 
-namespace xs = xsimd;
-using b_type = xs::batch<float, xs::avx2>;
-using b_bool = xs::batch_bool<b_type>;
-
-// b_type threshold = 0.0001;
-// b_type b_zero = 0.0;
-// b_type b = 10.0;
-// b_type rposx_j;
-// b_type rposy_j;
-// b_type rposz_j;
-// b_type raccx_j;
-// b_type raccy_j;
-// b_type raccz_j;
-// b_type rvelx_j;
-// b_type rvely_j;
-// b_type rvelz_j;
 
 Model_CPU_fast ::Model_CPU_fast(const Initstate &initstate, Particles &particles)
     : Model_CPU(initstate, particles)
@@ -33,47 +25,154 @@ Model_CPU_fast ::Model_CPU_fast(const Initstate &initstate, Particles &particles
 }
 
 // ! choose version
-#define VERSION 3
+#define VERSION 1
 
 #if VERSION == 1
 void forward(int n_particles, const Initstate &initstate, Particles &particles, std::vector<float> &velocitiesx, std::vector<float> &velocitiesy, std::vector<float> &velocitiesz, std::vector<float> &accelerationsx, std::vector<float> &accelerationsy, std::vector<float> &accelerationsz)
 {
 
-    // ! Use Parfor
-    // omp_set_num_threads(4);
-#pragma omp parallel for
-    for (int i = 0; i < n_particles; i++)
-    // for (int j = 0; j < n_particles; j++)
-    {
-        for (int j = i+1; j < n_particles; j++)
-        // for (int i = 0; i < n_particles; i++)
-        {
-            if (i != j)
-            {
-                const float diffx = particles.x[j] - particles.x[i];
-                const float diffy = particles.y[j] - particles.y[i];
-                const float diffz = particles.z[j] - particles.z[i];
+    cl_platform_id platform;
+    cl_device_id device;
+    cl_context context;
+    cl_command_queue queue;
+    cl_program program;
+    cl_kernel kernel;
+    cl_mem buffer_x, buffer_y, buffer_z, buffer_masses, buffer_accx, buffer_accy, buffer_accz;
+    cl_int err;
 
-                float dij = diffx * diffx + diffy * diffy + diffz * diffz;
-                // G = 10
-                if (dij < 1.0) // two bodies are too close
-                {
-                    dij = 10.0; // dij = G
-                }
-                else
-                {
-                    dij = std::sqrt(dij);
-                    dij = 10.0 / (dij * dij * dij); // dij=G/d^3
-                }
+    // Define the buffers
+    // float *buffer_x = (float*)malloc(sizeof(float) * n_particles);
+    // float *buffer_y = (float*)malloc(sizeof(float) * n_particles);
+    // float *buffer_z = (float*)malloc(sizeof(float) * n_particles);
+    // float *buffer_masses = (float*)malloc(sizeof(float) * n_particles);
+    // float *buffer_accx = (float*)malloc(sizeof(float) * n_particles);
+    // float *buffer_accy = (float*)malloc(sizeof(float) * n_particles);
+    // float *buffer_accz = (float*)malloc(sizeof(float) * n_particles);
 
-                accelerationsx[i] += diffx * dij * initstate.masses[j];
-                accelerationsy[i] += diffy * dij * initstate.masses[j];
-                accelerationsz[i] += diffz * dij * initstate.masses[j];
-            }
+    // Step 1: Get the first available platform
+    err = clGetPlatformIDs(1, &platform, NULL);
+    // Step 2: Get the first available device
+    err = clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, 1, &device, NULL);
+    // Step 3: Create the context
+    context = clCreateContext(NULL, 1, &device, NULL, NULL, &err);
+    // Step 4: Create the command queue
+    const cl_command_queue_properties properties[] = {CL_QUEUE_PROPERTIES, 0, 0};
+    queue = clCreateCommandQueueWithProperties(context, device, properties, &err);
+
+    // Step 5: Load the kernel source code
+    /*/ OPTION 1: From string
+    char* kernelSource = "__kernel void vector_add("
+                                "__global const int* A,"
+                                "__global const int* B,"
+                                "__global int* C) {"
+
+                                "int id = get_global_id(0);"
+                                "C[id] = A[id] + B[id];"
+                                "}";
+
+    //*/
+
+    //*/ OPTION 2: From a file
+    FILE* file = fopen("kernel.cl", "r");
+    if (!file) {
+        fprintf(stderr, "Failed to load the kernel.\n");
+    }
+    fseek(file, 0, SEEK_END);
+    size_t source_size = ftell(file);
+    rewind(file);
+
+    char* kernelSource = (char*)malloc(source_size + 1);
+    kernelSource[source_size] = '\0';
+    err = fread(kernelSource, sizeof(char), source_size, file);
+    fclose(file);
+    //*/
+
+    // Step 6: Create the program
+    program = clCreateProgramWithSource(context, 1, (const char **)&kernelSource, NULL, &err);
+    // Step 7: Build the program
+    err = clBuildProgram(program, 1, &device, NULL, NULL, NULL);
+
+    if (err != CL_SUCCESS) {
+        // If there's a build error, retrieve and print log
+        size_t logSize;
+        clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, 0, NULL, &logSize);
+        char* buildLog = (char*)malloc(logSize);
+        if (buildLog) {
+            clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, logSize, buildLog, NULL);
+            buildLog[logSize-1] = '\0';
+            printf("Error in kernel build:\n%s\n", buildLog);
+            free(buildLog);
         }
     }
-    // ? more parallelisme ?
-#pragma omp parallel for
+    
+    // Step 8: Create the kernel
+    kernel = clCreateKernel(program, "compute_accelerations", &err);
+    if (err != CL_SUCCESS) {
+        printf("Failed to create kernel. Error: %d\n", err);
+    }
+
+    // Step 9: Create the buffers
+    buffer_x = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(float) * n_particles, NULL, &err);
+    buffer_y = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(float) * n_particles, NULL, &err);
+    buffer_z = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(float) * n_particles, NULL, &err);
+    buffer_masses = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(float) * n_particles, NULL, &err);
+    buffer_accx = clCreateBuffer(context, CL_MEM_WRITE_ONLY, sizeof(float) * n_particles, NULL, &err);
+    buffer_accy = clCreateBuffer(context, CL_MEM_WRITE_ONLY, sizeof(float) * n_particles, NULL, &err);
+    buffer_accz = clCreateBuffer(context, CL_MEM_WRITE_ONLY, sizeof(float) * n_particles, NULL, &err);
+
+    // Step 10: Set the kernel arguments
+    err = clSetKernelArg(kernel, 0, sizeof(cl_mem), &buffer_x);
+    err |= clSetKernelArg(kernel, 1, sizeof(cl_mem), &buffer_y);
+    err |= clSetKernelArg(kernel, 2, sizeof(cl_mem), &buffer_z);
+    err |= clSetKernelArg(kernel, 3, sizeof(cl_mem), &buffer_masses);
+    err |= clSetKernelArg(kernel, 4, sizeof(cl_mem), &buffer_accx);
+    err |= clSetKernelArg(kernel, 5, sizeof(cl_mem), &buffer_accy);
+    err |= clSetKernelArg(kernel, 6, sizeof(cl_mem), &buffer_accz);
+    err |= clSetKernelArg(kernel, 7, sizeof(int), &n_particles); 
+
+    // Copy data from host to device
+    err = clEnqueueWriteBuffer(queue, buffer_x, CL_TRUE, 0, sizeof(float) * n_particles, particles.x.data(), 0, NULL, NULL);
+    err |= clEnqueueWriteBuffer(queue, buffer_y, CL_TRUE, 0, sizeof(float) * n_particles, particles.y.data(), 0, NULL, NULL);
+    err |= clEnqueueWriteBuffer(queue, buffer_z, CL_TRUE, 0, sizeof(float) * n_particles, particles.z.data(), 0, NULL, NULL);
+    err |= clEnqueueWriteBuffer(queue, buffer_masses, CL_TRUE, 0, sizeof(float) * n_particles, initstate.masses.data(), 0, NULL, NULL);
+
+    // Step 11: Execute the kernel
+    size_t global_work_size[] = {size_t(n_particles)};
+    err = clEnqueueNDRangeKernel(queue, kernel, 1, NULL, global_work_size, NULL, 0, NULL, NULL);
+     if (err != CL_SUCCESS) {
+        fprintf(stderr, "Failed to enqueue the kernel. Error: %d\n", err);
+    }
+    
+    // Wait for the commands in the queue to finish:
+    clFinish(queue);
+
+    // Step 12: Read the results
+    err = clEnqueueReadBuffer(queue, buffer_accx, CL_TRUE, 0, sizeof(float) * n_particles, accelerationsx.data(), 0, NULL, NULL);
+    err |= clEnqueueReadBuffer(queue, buffer_accy, CL_TRUE, 0, sizeof(float) * n_particles, accelerationsy.data(), 0, NULL, NULL);
+    err |= clEnqueueReadBuffer(queue, buffer_accz, CL_TRUE, 0, sizeof(float) * n_particles, accelerationsz.data(), 0, NULL, NULL);
+
+
+    // Check the error on reading buffers
+    if (err != CL_SUCCESS) {
+        fprintf(stderr, "Failed to read the buffer. Error: %d\n", err);
+    }
+    
+    // Cleanup
+    clReleaseMemObject(buffer_x);
+    clReleaseMemObject(buffer_y);
+    clReleaseMemObject(buffer_z);
+    clReleaseMemObject(buffer_masses);
+    clReleaseMemObject(buffer_accx);
+    clReleaseMemObject(buffer_accy);
+    clReleaseMemObject(buffer_accz);
+    clReleaseKernel(kernel);
+    clReleaseProgram(program);
+    clReleaseCommandQueue(queue);
+    clReleaseContext(context);
+    if (kernelSource != NULL) {
+    free(kernelSource);
+    }
+
     for (int i = 0; i < n_particles; i++)
     {
         velocitiesx[i] += accelerationsx[i] * 2.0f;
@@ -85,364 +184,6 @@ void forward(int n_particles, const Initstate &initstate, Particles &particles, 
     }
 }
 
-#elif VERSION == 2
-void forward(int n_particles, const Initstate &initstate, Particles &particles, std::vector<float> &velocitiesx, std::vector<float> &velocitiesy, std::vector<float> &velocitiesz, std::vector<float> &accelerationsx, std::vector<float> &accelerationsy, std::vector<float> &accelerationsz)
-{
-
-    // ! Use Xsimd
-
-    std::size_t inc = b_type::size;
-#pragma omp parallel for
-    for (int i = 0; i < n_particles -inc+1; i += inc)
-    {
-        // load registers body i
-        b_type rposx_i = b_type::load_unaligned(&particles.x[i]); // ? const
-        b_type rposy_i = b_type::load_unaligned(&particles.y[i]);
-        b_type rposz_i = b_type::load_unaligned(&particles.z[i]);
-        b_type raccx_i = b_type::load_unaligned(&accelerationsx[i]);
-        b_type raccy_i = b_type::load_unaligned(&accelerationsy[i]);
-        b_type raccz_i = b_type::load_unaligned(&accelerationsz[i]);
-        b_type rvelx_i = b_type::load_unaligned(&velocitiesx[i]);
-        b_type rvely_i = b_type::load_unaligned(&velocitiesy[i]);
-        b_type rvelz_i = b_type::load_unaligned(&velocitiesz[i]);
-
-        for (int j = 0; j < n_particles; j += 1)
-        {
-            if (i != j)
-            {
-                // std::cout << "i" << i << std::endl;
-                // std::cout << "j" << j << std::endl;
-
-                // load registers body j
-                b_type rposx_j = b_type::load_unaligned(&particles.x[j]);
-                b_type rposy_j = b_type::load_unaligned(&particles.y[j]);
-                b_type rposz_j = b_type::load_unaligned(&particles.z[j]);
-                b_type raccx_j = b_type::load_unaligned(&accelerationsx[j]);
-                b_type raccy_j = b_type::load_unaligned(&accelerationsy[j]);
-                b_type raccz_j = b_type::load_unaligned(&accelerationsz[j]);
-                b_type rvelx_j = b_type::load_unaligned(&velocitiesx[j]);
-                b_type rvely_j = b_type::load_unaligned(&velocitiesy[j]);
-                b_type rvelz_j = b_type::load_unaligned(&velocitiesz[j]);
-
-                b_type threshold = 0.0001;
-                b_type b_zero = 0.0;
-                b_type b = 10.0;
-
-                // std::cout << "rposx_i" << rposx_i << std::endl;
-                // std::cout << "rposy_i" << rposy_i << std::endl;
-                // std::cout << "rposz_i" << rposz_i << std::endl;
-
-                // std::cout << "rposx_j" << rposx_j << std::endl;
-                // std::cout << "rposy_j" << rposy_j << std::endl;
-                // std::cout << "rposz_j" << rposz_j << std::endl;
-
-                b_type diffx = rposx_j - rposx_i;
-                b_type diffy = rposy_j - rposy_i;
-                b_type diffz = rposz_j - rposz_i;
-
-                // std::cout << "diffx" << diffx << std::endl;
-                // std::cout << "diffy" << diffy << std::endl;
-                // std::cout << "diffz" << diffz << std::endl;
-
-                b_type dij = diffx * diffx + diffy * diffy + diffz * diffz;
-
-                
-                // dij = xs::rsqrt(dij); // rsqrt=1/sqrt
-                // dij = xs::select(xs::gt(b, dij), b, 10.0 * dij * dij * dij);
-
-                b_type c = xs::rsqrt(dij); // rsqrt=1/sqrt
-                /// dij = 1.0;
-                dij = xs::fmin(b, 10.0 * c * c * c);
-                // std::cout << "dij" << dij << std::endl;
-                
-
-
-
-
-                // b_type not_zero = bitwise_and(xs::gt(rposx_i, 1e-4),xs::gt(rposx_i, 1e-4));
-                // b_bool not_zero = xs::bitwise_and(xs::gt(b, a),xs::gt(a, b));
-
-           
-
-
-                auto not_zero =xs::bitwise_and(xs::bitwise_and(xs::gt(xs::abs(rposx_j), threshold),xs::gt(xs::abs(rposy_j), threshold)),xs::gt(xs::abs(rposz_j), threshold));
-
-                dij = xs::select(not_zero, dij, b_zero);
-                b_type raccx_i_j = diffx * dij;
-                b_type raccy_i_j = diffy * dij;
-                b_type raccz_i_j = diffz * dij;
-                // std::cout << "raccx_i_j" << raccx_i_j << std::endl;
-                // std::cout << "raccy_i_j" << raccy_i_j << std::endl;
-                // std::cout << "raccz_i_j" << raccz_i_j << std::endl;
-
-                raccx_i = raccx_i + raccx_i_j * initstate.masses[j];
-                raccy_i = raccy_i + raccy_i_j * initstate.masses[j];
-                raccz_i = raccz_i + raccz_i_j * initstate.masses[j];
-
-                // raccx_j = raccx_j - raccx_i_j * initstate.masses[i];
-                // raccy_j = raccy_j - raccy_i_j * initstate.masses[i];
-                // raccz_j = raccz_j - raccz_i_j * initstate.masses[i];
-
-                
-                
-            }
-        }
-
-        raccx_i.store_unaligned(&accelerationsx[i]);
-        raccy_i.store_unaligned(&accelerationsy[i]);
-        raccz_i.store_unaligned(&accelerationsz[i]);
-
-        // raccx_j.store_unaligned(&accelerationsx[j]);
-        // raccy_j.store_unaligned(&accelerationsy[j]);
-        // raccz_j.store_unaligned(&accelerationsz[j]);
-
-        
-
-        //         rvelx_i += raccx_i * 2.0f;
-        //         rvely_i += raccy_i * 2.0f;
-        //         rvelz_i += raccz_i * 2.0f;
-
-        //         rvelx_i.store_unaligned(&velocitiesx[i]);
-        //         rvely_i.store_unaligned(&velocitiesy[i]);
-        //         rvelz_i.store_unaligned(&velocitiesz[i]);
-
-        //         rposx_i += rvelx_i * 0.1f;
-        //         rposy_i += rvely_i * 0.1f;
-        //         rposz_i += rvelz_i * 0.1f;
-
-        //         rposx_i.store_unaligned(&particles.x[i]);
-        //         rposy_i.store_unaligned(&particles.y[i]);
-        //         rposz_i.store_unaligned(&particles.z[i]);
-    }
-    // #pragma omp parallel for
-    for (int i = 0; i < n_particles; i++)
-    {
-        velocitiesx[i] += accelerationsx[i] * 2.0f;
-        // if (i==0) std::cout << "accelerationsx_" << i << " = " << accelerationsx[i] << std::endl;
-        velocitiesy[i] += accelerationsy[i] * 2.0f;
-        velocitiesz[i] += accelerationsz[i] * 2.0f;
-        particles.x[i] += velocitiesx[i] * 0.1f;
-        particles.y[i] += velocitiesy[i] * 0.1f;
-        particles.z[i] += velocitiesz[i] * 0.1f;
-    }
-}
-#elif VERSION == 3
-void forward(int n_particles, const Initstate &initstate, Particles &particles, std::vector<float> &velocitiesx, std::vector<float> &velocitiesy, std::vector<float> &velocitiesz, std::vector<float> &accelerationsx, std::vector<float> &accelerationsy, std::vector<float> &accelerationsz)
-{
-
-    // ! Use Xsimd
-
-    std::size_t inc = b_type::size;
-#pragma omp parallel for
-    for (int i = 0; i < n_particles -inc+1; i += inc)
-    {
-        // load registers body i
-        b_type rposx_i = b_type::load_unaligned(&particles.x[i]); // ? const
-        b_type rposy_i = b_type::load_unaligned(&particles.y[i]);
-        b_type rposz_i = b_type::load_unaligned(&particles.z[i]);
-        b_type raccx_i = b_type::load_unaligned(&accelerationsx[i]);
-        b_type raccy_i = b_type::load_unaligned(&accelerationsy[i]);
-        b_type raccz_i = b_type::load_unaligned(&accelerationsz[i]);
-        b_type rvelx_i = b_type::load_unaligned(&velocitiesx[i]);
-        b_type rvely_i = b_type::load_unaligned(&velocitiesy[i]);
-        b_type rvelz_i = b_type::load_unaligned(&velocitiesz[i]);
-
-
-        for (int j = 0; j < n_particles -inc + 1; j += 1)
-        {
-            if (i != j)
-            {
-                // std::cout << "i" << i << std::endl;
-                // std::cout << "j" << j << std::endl;
-
-                // load registers body j
-                b_type rposx_j = b_type::load_unaligned(&particles.x[j]);
-                b_type rposy_j = b_type::load_unaligned(&particles.y[j]);
-                b_type rposz_j = b_type::load_unaligned(&particles.z[j]);
-                b_type raccx_j = b_type::load_unaligned(&accelerationsx[j]);
-                b_type raccy_j = b_type::load_unaligned(&accelerationsy[j]);
-                b_type raccz_j = b_type::load_unaligned(&accelerationsz[j]);
-                b_type rvelx_j = b_type::load_unaligned(&velocitiesx[j]);
-                b_type rvely_j = b_type::load_unaligned(&velocitiesy[j]);
-                b_type rvelz_j = b_type::load_unaligned(&velocitiesz[j]);
-
-                b_type b = 10.0;
-
-                // std::cout << "rposx_i" << rposx_i << std::endl;
-                // std::cout << "rposy_i" << rposy_i << std::endl;
-                // std::cout << "rposz_i" << rposz_i << std::endl;
-
-                // std::cout << "rposx_j" << rposx_j << std::endl;
-                // std::cout << "rposy_j" << rposy_j << std::endl;
-                // std::cout << "rposz_j" << rposz_j << std::endl;
-
-                b_type diffx = rposx_j - rposx_i;
-                b_type diffy = rposy_j - rposy_i;
-                b_type diffz = rposz_j - rposz_i;
-
-                // std::cout << "diffx" << diffx << std::endl;
-                // std::cout << "diffy" << diffy << std::endl;
-                // std::cout << "diffz" << diffz << std::endl;
-
-                b_type dij = diffx * diffx + diffy * diffy + diffz * diffz;
-
-                
-                // dij = xs::rsqrt(dij); // rsqrt=1/sqrt
-                // dij = xs::select(xs::gt(b, dij), b, 10.0 * dij * dij * dij);
-
-                b_type c = xs::rsqrt(dij); // rsqrt=1/sqrt
-                /// dij = 1.0;
-                dij = xs::fmin(b, 10.0 * c * c * c);
-                // std::cout << "dij" << dij << std::endl;
-                
-
-
-
-                
-                b_type raccx_i_j = diffx * dij;
-                b_type raccy_i_j = diffy * dij;
-                b_type raccz_i_j = diffz * dij;
-                // std::cout << "raccx_i_j" << raccx_i_j << std::endl;
-                // std::cout << "raccy_i_j" << raccy_i_j << std::endl;
-                // std::cout << "raccz_i_j" << raccz_i_j << std::endl;
-
-                raccx_i = raccx_i + raccx_i_j * initstate.masses[j];
-                raccy_i = raccy_i + raccy_i_j * initstate.masses[j];
-                raccz_i = raccz_i + raccz_i_j * initstate.masses[j];
-
-                // raccx_j = raccx_j - raccx_i_j * initstate.masses[i];
-                // raccy_j = raccy_j - raccy_i_j * initstate.masses[i];
-                // raccz_j = raccz_j - raccz_i_j * initstate.masses[i];
-
-                
-                
-            }
-        }
-
-        for (int j = n_particles -inc + 1; j < n_particles; j += 1)
-        {
-            if (i != j)
-            {
-                // std::cout << "i" << i << std::endl;
-                // std::cout << "j" << j << std::endl;
-
-                // load registers body j
-                b_type rposx_j = b_type::load_unaligned(&particles.x[j]);
-                b_type rposy_j = b_type::load_unaligned(&particles.y[j]);
-                b_type rposz_j = b_type::load_unaligned(&particles.z[j]);
-                b_type raccx_j = b_type::load_unaligned(&accelerationsx[j]);
-                b_type raccy_j = b_type::load_unaligned(&accelerationsy[j]);
-                b_type raccz_j = b_type::load_unaligned(&accelerationsz[j]);
-                b_type rvelx_j = b_type::load_unaligned(&velocitiesx[j]);
-                b_type rvely_j = b_type::load_unaligned(&velocitiesy[j]);
-                b_type rvelz_j = b_type::load_unaligned(&velocitiesz[j]);
-
-                b_type threshold = 0.0001;
-                b_type b_zero = 0.0;
-                b_type b = 10.0;
-
-                // std::cout << "rposx_i" << rposx_i << std::endl;
-                // std::cout << "rposy_i" << rposy_i << std::endl;
-                // std::cout << "rposz_i" << rposz_i << std::endl;
-
-                // std::cout << "rposx_j" << rposx_j << std::endl;
-                // std::cout << "rposy_j" << rposy_j << std::endl;
-                // std::cout << "rposz_j" << rposz_j << std::endl;
-
-                b_type diffx = rposx_j - rposx_i;
-                b_type diffy = rposy_j - rposy_i;
-                b_type diffz = rposz_j - rposz_i;
-
-                // std::cout << "diffx" << diffx << std::endl;
-                // std::cout << "diffy" << diffy << std::endl;
-                // std::cout << "diffz" << diffz << std::endl;
-
-                b_type dij = diffx * diffx + diffy * diffy + diffz * diffz;
-
-                
-                // dij = xs::rsqrt(dij); // rsqrt=1/sqrt
-                // dij = xs::select(xs::gt(b, dij), b, 10.0 * dij * dij * dij);
-
-                b_type c = xs::rsqrt(dij); // rsqrt=1/sqrt
-                /// dij = 1.0;
-                dij = xs::fmin(b, 10.0 * c * c * c);
-                // std::cout << "dij" << dij << std::endl;
-                
-
-
-
-
-                // b_type not_zero = bitwise_and(xs::gt(rposx_i, 1e-4),xs::gt(rposx_i, 1e-4));
-                // b_bool not_zero = xs::bitwise_and(xs::gt(b, a),xs::gt(a, b));
-
-           
-
-
-                auto not_zero =xs::bitwise_and(xs::bitwise_and(xs::gt(xs::abs(rposx_j), threshold),xs::gt(xs::abs(rposy_j), threshold)),xs::gt(xs::abs(rposz_j), threshold));
-                dij = xs::select(not_zero, dij, b_zero);
-
-             
-
-                b_type raccx_i_j = diffx * dij;
-                b_type raccy_i_j = diffy * dij;
-                b_type raccz_i_j = diffz * dij;
-                // std::cout << "raccx_i_j" << raccx_i_j << std::endl;
-                // std::cout << "raccy_i_j" << raccy_i_j << std::endl;
-                // std::cout << "raccz_i_j" << raccz_i_j << std::endl;
-
-                raccx_i = raccx_i + raccx_i_j * initstate.masses[j];
-                raccy_i = raccy_i + raccy_i_j * initstate.masses[j];
-                raccz_i = raccz_i + raccz_i_j * initstate.masses[j];
-
-                // raccx_j = raccx_j - raccx_i_j * initstate.masses[i];
-                // raccy_j = raccy_j - raccy_i_j * initstate.masses[i];
-                // raccz_j = raccz_j - raccz_i_j * initstate.masses[i];
-
-                
-                
-            }
-        }
-
-
-        raccx_i.store_unaligned(&accelerationsx[i]);
-        raccy_i.store_unaligned(&accelerationsy[i]);
-        raccz_i.store_unaligned(&accelerationsz[i]);
-
-        // raccx_j.store_unaligned(&accelerationsx[j]);
-        // raccy_j.store_unaligned(&accelerationsy[j]);
-        // raccz_j.store_unaligned(&accelerationsz[j]);
-
-        
-
-        //         rvelx_i += raccx_i * 2.0f;
-        //         rvely_i += raccy_i * 2.0f;
-        //         rvelz_i += raccz_i * 2.0f;
-
-        //         rvelx_i.store_unaligned(&velocitiesx[i]);
-        //         rvely_i.store_unaligned(&velocitiesy[i]);
-        //         rvelz_i.store_unaligned(&velocitiesz[i]);
-
-        //         rposx_i += rvelx_i * 0.1f;
-        //         rposy_i += rvely_i * 0.1f;
-        //         rposz_i += rvelz_i * 0.1f;
-
-        //         rposx_i.store_unaligned(&particles.x[i]);
-        //         rposy_i.store_unaligned(&particles.y[i]);
-        //         rposz_i.store_unaligned(&particles.z[i]);
-    }
-
-    #pragma omp parallel for
-    for (int i = 0; i < n_particles; i++)
-    {
-        velocitiesx[i] += accelerationsx[i] * 2.0f;
-        // if (i==0) std::cout << "accelerationsx_" << i << " = " << accelerationsx[i] << std::endl;
-        velocitiesy[i] += accelerationsy[i] * 2.0f;
-        velocitiesz[i] += accelerationsz[i] * 2.0f;
-        particles.x[i] += velocitiesx[i] * 0.1f;
-        particles.y[i] += velocitiesy[i] * 0.1f;
-        particles.z[i] += velocitiesz[i] * 0.1f;
-    }
-}
 #else
     std::cerr << "Not implemented!" << std::endl;
 #endif

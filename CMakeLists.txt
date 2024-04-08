@@ -12,6 +12,7 @@ set(CMAKE_CUDA_ARCHITECTURES 52 61 75)
 option(GALAX_LINK_SDL2 "Link with the SDL2 library (used for graphical display)" OFF)
 option(GALAX_LINK_CUDA "Link with the CUDA library (used for GPU model)"         OFF)
 option(GALAX_LINK_OMP  "Link with the OMP  library (used for CPU_FAST model)"    OFF)
+option(GALAX_LINK_OPENCL "Link with the OpenCL library (used for OpenCL model)" OFF)
 
 # Enable C++11
 set(CMAKE_CXX_STANDARD 17)
@@ -86,6 +87,17 @@ if(GALAX_LINK_OMP)
         target_link_libraries(galax PUBLIC OpenMP::OpenMP_CXX)
     endif()
 endif(GALAX_LINK_OMP)
+
+# Find OpenCL
+if(GALAX_LINK_OPENCL)
+    find_package(OpenCL)
+    if(OpenCL_FOUND)
+        message(STATUS "Galax - Library found: OpenCL")
+        include_directories(${OpenCL_INCLUDE_DIRS})
+        target_link_libraries(galax PUBLIC ${OpenCL_LIBRARIES})
+        target_compile_definitions(galax PUBLIC CL_TARGET_OPENCL_VERSION=220) # ! OpenCL version 2.2
+    endif()
+endif()
 
 # Find Cuda
 if(GALAX_LINK_CUDA)
