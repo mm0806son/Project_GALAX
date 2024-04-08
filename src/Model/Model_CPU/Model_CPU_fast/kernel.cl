@@ -6,7 +6,7 @@ __kernel void compute_accelerations(
     __global float* accelerationsx,
     __global float* accelerationsy,
     __global float* accelerationsz,
-    const unsigned int n_particles)
+    const int n_particles)
 {
     int i = get_global_id(0);
     if (i < n_particles)

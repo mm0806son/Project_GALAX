@@ -2,7 +2,7 @@
  * @Date: 2024-04-07 14:29:10
  * @Author: Zijie Ning zijie.ning@kuleuven.be
  * @LastEditors: Zijie Ning zijie.ning@kuleuven.be
- * @LastEditTime: 2024-04-08 12:43:18
+ * @LastEditTime: 2024-04-08 14:11:46
  * @FilePath: /Project_GALAX/src/Model/Model_CPU/Model_CPU_fast/Model_CPU_fast.cpp
  */
 #define GALAX_MODEL_CPU_FAST 1
@@ -60,20 +60,7 @@ void forward(int n_particles, const Initstate &initstate, Particles &particles, 
     queue = clCreateCommandQueueWithProperties(context, device, properties, &err);
 
     // Step 5: Load the kernel source code
-    /*/ OPTION 1: From string
-    char* kernelSource = "__kernel void vector_add("
-                                "__global const int* A,"
-                                "__global const int* B,"
-                                "__global int* C) {"
-
-                                "int id = get_global_id(0);"
-                                "C[id] = A[id] + B[id];"
-                                "}";
-
-    //*/
-
-    //*/ OPTION 2: From a file
-    FILE* file = fopen("kernel.cl", "r");
+    FILE* file = fopen("src/Model/Model_CPU/Model_CPU_fast/kernel.cl", "r");
     if (!file) {
         fprintf(stderr, "Failed to load the kernel.\n");
     }

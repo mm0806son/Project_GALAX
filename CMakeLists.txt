@@ -15,7 +15,7 @@ option(GALAX_LINK_OMP  "Link with the OMP  library (used for CPU_FAST model)"   
 option(GALAX_LINK_OPENCL "Link with the OpenCL library (used for OpenCL model)" OFF)
 
 # Enable C++11
-set(CMAKE_CXX_STANDARD 17)
+# set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Specify bin path
